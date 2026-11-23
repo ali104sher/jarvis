@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JARVIS Mark LVII Holographic Core</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; }
+  #stage { position: relative; width: 100%; height: 100%; cursor: grab; }
+  canvas { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="c"></canvas></div>
+<script src="three.min.js"></script>
+<script>
+(function(){
+  const canvas = document.getElementById("c");
+  const stage = document.getElementById("stage");
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setClearColor(0x000000, 0);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 50);
+  camera.position.set(0, 0.45, 5.8);
+  camera.lookAt(0, -0.1, 0);
+
+  const C_CYAN = 0x22d3ee;
+  const C_EMERALD = 0x10b981;
+  const C_GOLD = 0xf59e0b;
+
+  const root = new THREE.Group();
+  root.position.y = 0.25;
+  scene.add(root);
+
+  // 1. Glowing Volumetric Core Shader
+  const coreMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uAmp: { value: 0.1 },
+      uColA: { value: new THREE.Color(0x06b6d4) },
+      uColB: { value: new THREE.Color(0x10b981) },
+      uColHot: { value: new THREE.Color(0xe0f2fe) }
+    },
+    vertexShader: `
+      varying vec3 vNormal;
+      varying vec3 vView;
+      void main() {
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vNormal = normalize(normalMatrix * normal);
+        vView = normalize(-mv.xyz);
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime, uAmp;
+      uniform vec3 uColA, uColB, uColHot;
+      varying vec3 vNormal, vView;
+      void main() {
+        float ndv = max(dot(normalize(vNormal), normalize(vView)), 0.0);
+        float centerGlow = pow(ndv, 1.8);
+        float rim = pow(1.0 - ndv, 2.5);
+        vec3 col = mix(uColA, uColB, 0.5 + 0.5 * sin(uTime * 1.5));
+        col = mix(col, uColHot, centerGlow * (0.75 + uAmp * 0.5));
+        col += uColA * rim * 0.8;
+        gl_FragColor = vec4(col, clamp(centerGlow * 0.9 + rim * 0.45, 0.0, 0.95));
+      }
+    `,
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false
+  });
+  const core = new THREE.Mesh(new THREE.SphereGeometry(0.92, 48, 48), coreMat);
+  root.add(core);
+
+  // 2. Latitude/Longitude Holographic Sphere Grid (like your screenshot)
+  const cageGeo = new THREE.SphereGeometry(1.08, 24, 16);
+  const cage = new THREE.LineSegments(
+    new THREE.WireframeGeometry(cageGeo),
+    new THREE.LineBasicMaterial({
+      color: C_CYAN, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending
+    })
+  );
+  root.add(cage);
+
+  // 3. Tilted Orbital Rings + Glowing Satellite Nodes
+  function createOrbitSystem(radius, tiltX, tiltZ, color, speed) {
+    const grp = new THREE.Group();
+    grp.rotation.set(tiltX, 0, tiltZ);
+
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(radius - 0.008, radius + 0.008, 128),
+      new THREE.MeshBasicMaterial({
+        color, transparent: true, opacity: 0.55, side: THREE.DoubleSide, blending: THREE.AdditiveBlending
+      })
+    );
+    ring.rotation.x = Math.PI / 2;
+    grp.add(ring);
+
+    const sat = new THREE.Mesh(
+      new THREE.SphereGeometry(0.042, 12, 12),
+      new THREE.MeshBasicMaterial({ color: 0xffffff })
+    );
+    const satHalo = new THREE.Mesh(
+      new THREE.SphereGeometry(0.09, 12, 12),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.65, blending: THREE.AdditiveBlending })
+    );
+    sat.add(satHalo);
+    sat.position.set(radius, 0, 0);
+    grp.add(sat);
+
+    root.add(grp);
+    return { grp, sat, radius, speed, angle: Math.random() * 6.28 };
+  }
+
+  const orbits = [
+    createOrbitSystem(1.68, 0.48, -0.38, C_CYAN, 0.85),
+    createOrbitSystem(1.88, -0.22, 0.15, C_EMERALD, -0.65),
+    createOrbitSystem(1.42, 0.72, 0.45, C_GOLD, 1.15)
+  ];
+
+  // 4. Concentric Projector Base Rings beneath the sphere
+  const base = new THREE.Group();
+  base.position.y = -1.45;
+  scene.add(base);
+
+  const baseRings = [];
+  [0.7, 1.15, 1.6, 2.05].forEach((r, i) => {
+    const m = new THREE.Mesh(
+      new THREE.RingGeometry(r - 0.01, r + 0.01, 128),
+      new THREE.MeshBasicMaterial({
+        color: i % 2 === 0 ? C_CYAN : C_EMERALD,
+        transparent: true,
+        opacity: 0.5 - i * 0.09,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending
+      })
+    );
+    m.rotation.x = Math.PI / 2;
+    base.add(m);
+    baseRings.push(m);
+  });
+
+  // 5. Ambient floating dust motes
+  const dustCount = 120;
+  const dustPos = new Float32Array(dustCount * 3);
+  for (let i = 0; i < dustCount; i++) {
+    dustPos.set([(Math.random() - 0.5) * 6, (Math.random() - 0.5) * 4.5, (Math.random() - 0.5) * 4], i * 3);
+  }
+  const dustGeo = new THREE.BufferGeometry();
+  dustGeo.setAttribute("position", new THREE.BufferAttribute(dustPos, 3));
+  const dust = new THREE.Points(
+    dustGeo,
+    new THREE.PointsMaterial({ color: C_EMERALD, size: 0.035, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending })
+  );
+  scene.add(dust);
+
+  let state = "idle", extAudio = 0, extTime = 0, drag = false, px = 0, py = 0, vx = 0, vy = 0;
+  stage.addEventListener("pointerdown", e => { drag = true; px = e.clientX; py = e.clientY; });
+  window.addEventListener("pointermove", e => {
+    if (!drag) return;
+    vy += (e.clientX - px) * 0.008;
+    vx += (e.clientY - py) * 0.008;
+    px = e.clientX; py = e.clientY;
+  });
+  window.addEventListener("pointerup", () => drag = false);
+
+  function resize() {
+    const w = stage.clientWidth || 300, h = stage.clientHeight || 300;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  let last = performance.now();
+  function animate(now) {
+    requestAnimationFrame(animate);
+    const dt = Math.min((now - last) / 1000, 0.05); last = now;
+    const t = now * 0.001;
+
+    const audio = (now - extTime < 220)
+      ? extAudio
+      : (state === "speaking" ? 0.35 + 0.4 * Math.abs(Math.sin(t * 8.5))
+        : state === "thinking" ? 0.3 : 0.05);
+
+    const speedMult = state === "thinking" ? 2.4 : state === "speaking" ? 1.5 : 0.8;
+
+    coreMat.uniforms.uTime.value = t;
+    coreMat.uniforms.uAmp.value = audio;
+    const pulse = 1 + audio * 0.22 + Math.sin(t * 2) * 0.025;
+    core.scale.setScalar(pulse);
+    cage.scale.setScalar(1 + audio * 0.14);
+    cage.rotation.y += dt * 0.25 * speedMult;
+
+    root.rotation.y += vy;
+    root.rotation.x += vx;
+    vx *= 0.92; vy *= 0.92;
+
+    orbits.forEach(o => {
+      o.angle += dt * o.speed * speedMult;
+      o.sat.position.set(Math.cos(o.angle) * o.radius, 0, Math.sin(o.angle) * o.radius);
+    });
+
+    baseRings.forEach((r, idx) => {
+      const wave = 1 + Math.sin(t * 3 - idx * 0.8) * (0.02 + audio * 0.08);
+      r.scale.setScalar(wave);
+    });
+
+    dust.rotation.y += dt * 0.04;
+    renderer.render(scene, camera);
+  }
+  requestAnimationFrame(animate);
+
+  window.JarvisOrb = {
+    setState: s => state = s,
+    setExternalAudio: lvl => { extAudio = Number(lvl) || 0; extTime = performance.now(); },
+    startListening: () => state = "listening",
+    startThinking: () => state = "thinking",
+    startSpeaking: () => state = "speaking",
+    stopSpeaking: () => state = "idle"
+  };
+})();
+</script>
+</body>
+</html>

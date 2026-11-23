@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JARVIS Solar Gold Eclipse Orb</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; }
+  #stage { position: relative; width: 100%; height: 100%; }
+  canvas { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="c"></canvas></div>
+<script src="three.min.js"></script>
+<script>
+(function(){
+  const canvas = document.getElementById("c");
+  const stage = document.getElementById("stage");
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setClearColor(0x000000, 0);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 50);
+  camera.position.z = 5.4;
+
+  const group = new THREE.Group();
+  scene.add(group);
+
+  // Dark matte obsidian center sphere (blocks back particles for crisp eclipse depth)
+  const coreMesh = new THREE.Mesh(
+    new THREE.SphereGeometry(1.18, 48, 48),
+    new THREE.MeshBasicMaterial({ color: 0x07080c })
+  );
+  group.add(coreMesh);
+
+  // Warm golden corona ring right around the dark core
+  const coronaMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uAmp: { value: 0.1 },
+      uGold: { value: new THREE.Color(0xf59e0b) },
+      uYellow: { value: new THREE.Color(0xfde047) }
+    },
+    vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `
+      varying vec2 vUv;
+      uniform float uTime, uAmp;
+      uniform vec3 uGold, uYellow;
+      void main() {
+        vec2 c = vUv - 0.5;
+        float d = length(c) * 2.0;
+        float a = atan(c.y, c.x);
+        float ring = exp(-abs(d - 0.68) * (14.0 - uAmp * 5.0));
+        float flare = 0.8 + 0.2 * sin(a * 6.0 + uTime * 2.0);
+        vec3 col = mix(uGold, uYellow, ring * flare);
+        gl_FragColor = vec4(col, clamp(ring * (0.75 + uAmp), 0.0, 0.95));
+      }
+    `,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
+  });
+  const corona = new THREE.Mesh(new THREE.PlaneGeometry(3.5, 3.5), coronaMat);
+  corona.position.z = -0.05;
+  scene.add(corona);
+
+  // 4,500 Gold & Yellow swirling particles
+  const COUNT = 4500;
+  const pos = new Float32Array(COUNT * 3);
+  const rnd = new Float32Array(COUNT);
+  for (let i = 0; i < COUNT; i++) {
+    const y = 1 - 2 * (i + 0.5) / COUNT;
+    const r = Math.sqrt(1 - y * y);
+    const th = i * 2.39996;
+    const rad = 1.24 + Math.random() * 0.22;
+    pos.set([Math.cos(th) * r * rad, y * rad, Math.sin(th) * r * rad], i * 3);
+    rnd[i] = Math.random();
+  }
+
+  const U = {
+    uTime: { value: 0 },
+    uAmp: { value: 0.05 },
+    uGold: { value: new THREE.Color(0xd97706) },
+    uYellow: { value: new THREE.Color(0xfef08a) }
+  };
+
+  const pGeo = new THREE.BufferGeometry();
+  pGeo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  pGeo.setAttribute("aRnd", new THREE.BufferAttribute(rnd, 1));
+
+  const pMat = new THREE.ShaderMaterial({
+    uniforms: U,
+    vertexShader: `
+      attribute float aRnd;
+      uniform float uTime, uAmp;
+      varying float vMix;
+      varying float vAlpha;
+      void main() {
+        vec3 p = position;
+        float wave = sin(p.y * 4.0 + uTime * 2.2 + aRnd * 6.28) * (0.04 + uAmp * 0.22);
+        p += normalize(p) * wave;
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        vMix = aRnd;
+        vAlpha = smoothstep(-1.5, 1.5, mv.z + 5.4);
+        gl_PointSize = max((1.8 + aRnd * 2.4) * (1.0 + uAmp * 0.6), 1.5);
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 uGold, uYellow;
+      varying float vMix, vAlpha;
+      void main() {
+        float d = length(gl_PointCoord - 0.5);
+        if (d > 0.5) discard;
+        vec3 col = mix(uGold, uYellow, vMix);
+        gl_FragColor = vec4(col, smoothstep(0.5, 0.05, d) * vAlpha);
+      }
+    `,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
+  });
+  const particles = new THREE.Points(pGeo, pMat);
+  group.add(particles);
+
+  let state = "idle", extAudio = 0, extTime = 0;
+
+  function resize() {
+    const w = stage.clientWidth || 300, h = stage.clientHeight || 300;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  let last = performance.now();
+  function animate(now) {
+    requestAnimationFrame(animate);
+    const dt = Math.min((now - last) / 1000, 0.05); last = now;
+
+    const audio = (now - extTime < 220)
+      ? extAudio
+      : (state === "speaking" ? 0.35 + 0.35 * Math.abs(Math.sin(now * 0.008))
+        : state === "thinking" ? 0.25 : 0.05);
+
+    const speed = state === "thinking" ? 2.4 : 0.8;
+    U.uTime.value += dt * speed;
+    U.uAmp.value += (audio - U.uAmp.value) * dt * 10;
+    coronaMat.uniforms.uTime.value = U.uTime.value;
+    coronaMat.uniforms.uAmp.value = U.uAmp.value;
+
+    group.rotation.y += dt * (0.22 + (state === "thinking" ? 0.6 : 0));
+    group.rotation.z = Math.sin(now * 0.0008) * 0.15;
+
+    renderer.render(scene, camera);
+  }
+  requestAnimationFrame(animate);
+
+  window.JarvisOrb = {
+    setState: s => state = s,
+    setExternalAudio: lvl => { extAudio = Number(lvl) || 0; extTime = performance.now(); },
+    startListening: () => state = "listening",
+    startThinking: () => state = "thinking",
+    startSpeaking: () => state = "speaking",
+    stopSpeaking: () => state = "idle"
+  };
+})();
+</script>
+</body>
+</html>

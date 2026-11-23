@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JARVIS Molten Gold Matte Orb</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; }
+  #stage { position: relative; width: 100%; height: 100%; cursor: grab; }
+  #stage:active { cursor: grabbing; }
+  canvas { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="c"></canvas></div>
+<script src="three.min.js"></script>
+<script>
+(function(){
+  const canvas = document.getElementById("c");
+  const stage = document.getElementById("stage");
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setClearColor(0x000000, 0);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 50);
+  camera.position.z = 5.0;
+
+  const U = {
+    uTime: { value: 0 },
+    uAmp: { value: 0.08 },
+    uMatte: { value: new THREE.Color(0x0b0c10) },   // Deep matte charcoal
+    uAmber: { value: new THREE.Color(0xd97706) },   // Rich molten gold
+    uYellow: { value: new THREE.Color(0xfef08a) }   // Hot white-yellow core
+  };
+
+  const vertexShader = `
+    uniform float uTime;
+    uniform float uAmp;
+    varying vec3 vPos;
+    varying vec3 vNormal;
+    varying vec3 vViewDir;
+
+    void main() {
+      vPos = position;
+      float breathe = 1.0 + sin(uTime * 1.8 + position.y * 2.5) * (0.015 + uAmp * 0.06);
+      vec4 mv = modelViewMatrix * vec4(position * breathe, 1.0);
+      vViewDir = normalize(-mv.xyz);
+      vNormal = normalize(normalMatrix * normal);
+      gl_Position = projectionMatrix * mv;
+    }
+  `;
+
+  const fragmentShader = `
+    uniform float uTime;
+    uniform float uAmp;
+    uniform vec3 uMatte;
+    uniform vec3 uAmber;
+    uniform vec3 uYellow;
+    varying vec3 vPos;
+    varying vec3 vNormal;
+    varying vec3 vViewDir;
+
+    // Ridge noise for golden fractures
+    float ridge(vec3 p) {
+      float n1 = sin(p.x * 3.8 + uTime * 0.6) * cos(p.y * 3.6 - uTime * 0.5) * sin(p.z * 3.9 + uTime * 0.4);
+      float n2 = cos(p.x * 7.5 - uTime * 0.9) * sin(p.y * 7.2 + uTime * 0.7) * cos(p.z * 7.4);
+      float v = abs(n1 + n2 * 0.45);
+      return 1.0 - smoothstep(0.02, 0.14 + uAmp * 0.14, v);
+    }
+
+    void main() {
+      vec3 N = normalize(vNormal);
+      vec3 V = normalize(vViewDir);
+
+      // Soft matte directional shading
+      vec3 lightDir = normalize(vec3(0.6, 0.8, 1.0));
+      float diff = max(dot(N, lightDir), 0.0) * 0.35 + 0.15;
+      vec3 matteBase = uMatte * (diff + 0.55);
+
+      // Golden cracks
+      float crack = ridge(vPos * 1.15);
+      float hotCore = pow(crack, 3.0);
+
+      // Subtle gold rim light
+      float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.2);
+
+      vec3 goldGlow = mix(uAmber, uYellow, hotCore) * (1.3 + uAmp * 2.2);
+      vec3 col = mix(matteBase, goldGlow, crack);
+      col += uAmber * fresnel * (0.45 + uAmp * 0.8);
+
+      gl_FragColor = vec4(col, 1.0);
+    }
+  `;
+
+  const orb = new THREE.Mesh(
+    new THREE.SphereGeometry(1.42, 64, 64),
+    new THREE.ShaderMaterial({ vertexShader, fragmentShader, uniforms: U })
+  );
+  scene.add(orb);
+
+  // Thin brushed-gold outer ring
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(1.72, 1.745, 128),
+    new THREE.MeshBasicMaterial({
+      color: 0xf59e0b, transparent: true, opacity: 0.45, side: THREE.DoubleSide, blending: THREE.AdditiveBlending
+    })
+  );
+  ring.rotation.x = 1.15;
+  ring.rotation.y = 0.25;
+  scene.add(ring);
+
+  let state = "idle", extAudio = 0, extTime = 0, drag = false, px = 0, py = 0, vx = 0, vy = 0;
+  stage.addEventListener("pointerdown", e => { drag = true; px = e.clientX; py = e.clientY; });
+  window.addEventListener("pointermove", e => {
+    if (!drag) return;
+    vy += (e.clientX - px) * 0.008;
+    vx += (e.clientY - py) * 0.008;
+    px = e.clientX; py = e.clientY;
+  });
+  window.addEventListener("pointerup", () => drag = false);
+
+  function resize() {
+    const w = stage.clientWidth || 300, h = stage.clientHeight || 300;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  let last = performance.now();
+  function animate(now) {
+    requestAnimationFrame(animate);
+    const dt = Math.min((now - last) / 1000, 0.05); last = now;
+
+    const audio = (now - extTime < 220)
+      ? extAudio
+      : (state === "speaking" ? 0.35 + 0.35 * Math.abs(Math.sin(now * 0.008))
+        : state === "thinking" ? 0.28 : 0.04);
+
+    const speed = state === "thinking" ? 2.2 : state === "speaking" ? 1.4 : 0.6;
+    U.uTime.value += dt * speed;
+    U.uAmp.value += (audio - U.uAmp.value) * dt * 10;
+
+    orb.rotation.y += dt * 0.2 + vy;
+    orb.rotation.x += vx;
+    vx *= 0.92; vy *= 0.92;
+
+    ring.rotation.z += dt * 0.35;
+    ring.scale.setScalar(1 + U.uAmp.value * 0.12);
+
+    renderer.render(scene, camera);
+  }
+  requestAnimationFrame(animate);
+
+  window.JarvisOrb = {
+    setState: s => state = s,
+    setExternalAudio: lvl => { extAudio = Number(lvl) || 0; extTime = performance.now(); },
+    startListening: () => state = "listening",
+    startThinking: () => state = "thinking",
+    startSpeaking: () => state = "speaking",
+    stopSpeaking: () => state = "idle"
+  };
+})();
+</script>
+</body>
+</html>

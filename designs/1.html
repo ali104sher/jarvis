@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JARVIS Neural Constellation Orb</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; }
+  #stage { position: relative; width: 100%; height: 100%; }
+  canvas { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="c"></canvas></div>
+<script src="three.min.js"></script>
+<script>
+(function(){
+  const canvas = document.getElementById("c");
+  const stage = document.getElementById("stage");
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setClearColor(0x000000, 0);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 50);
+  camera.position.z = 5.4;
+
+  const group = new THREE.Group();
+  scene.add(group);
+
+  // Generate Fibonacci sphere nodes
+  const NODE_COUNT = 160;
+  const RADIUS = 1.65;
+  const nodes = [];
+  const nodePositions = new Float32Array(NODE_COUNT * 3);
+
+  for (let i = 0; i < NODE_COUNT; i++) {
+    const y = 1 - (i / (NODE_COUNT - 1)) * 2;
+    const r = Math.sqrt(1 - y * y);
+    const theta = i * 2.3999632; // Golden angle
+    const x = Math.cos(theta) * r * RADIUS;
+    const py = y * RADIUS;
+    const z = Math.sin(theta) * r * RADIUS;
+    nodes.push(new THREE.Vector3(x, py, z));
+    nodePositions.set([x, py, z], i * 3);
+  }
+
+  // Build synapse connections between nearby nodes
+  const lineVerts = [];
+  const MAX_DIST = 0.68;
+  for (let i = 0; i < NODE_COUNT; i++) {
+    for (let j = i + 1; j < NODE_COUNT; j++) {
+      if (nodes[i].distanceTo(nodes[j]) < MAX_DIST) {
+        lineVerts.push(nodes[i].x, nodes[i].y, nodes[i].z);
+        lineVerts.push(nodes[j].x, nodes[j].y, nodes[j].z);
+      }
+    }
+  }
+
+  const lineGeo = new THREE.BufferGeometry();
+  lineGeo.setAttribute("position", new THREE.Float32BufferAttribute(lineVerts, 3));
+  const lineMat = new THREE.LineBasicMaterial({
+    color: 0x3b82f6, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending
+  });
+  const lines = new THREE.LineSegments(lineGeo, lineMat);
+  group.add(lines);
+
+  const ptsGeo = new THREE.BufferGeometry();
+  ptsGeo.setAttribute("position", new THREE.BufferAttribute(nodePositions, 3));
+  const ptsMat = new THREE.PointsMaterial({
+    color: 0x38bdf8, size: 0.065, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending
+  });
+  const points = new THREE.Points(ptsGeo, ptsMat);
+  group.add(points);
+
+  // Inner dark glass core for 3D depth occlusion
+  const innerCore = new THREE.Mesh(
+    new THREE.SphereGeometry(RADIUS * 0.92, 32, 32),
+    new THREE.MeshBasicMaterial({ color: 0x050814, transparent: true, opacity: 0.72 })
+  );
+  group.add(innerCore);
+
+  let state = "idle", extAudio = 0, extTime = 0;
+
+  function resize() {
+    const w = stage.clientWidth || 300, h = stage.clientHeight || 300;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  let last = performance.now();
+  function animate(now) {
+    requestAnimationFrame(animate);
+    const dt = Math.min((now - last) / 1000, 0.05); last = now;
+
+    const audio = (now - extTime < 220)
+      ? extAudio
+      : (state === "speaking" ? 0.35 + 0.35 * Math.abs(Math.sin(now * 0.008))
+        : state === "thinking" ? 0.3 : 0.06);
+
+    const rotSpeed = state === "thinking" ? 0.9 : 0.25;
+    group.rotation.y += dt * rotSpeed;
+    group.rotation.x = Math.sin(now * 0.0007) * 0.25;
+
+    const scale = 1 + audio * 0.16;
+    group.scale.setScalar(scale);
+
+    lineMat.opacity = 0.28 + audio * 0.55;
+    lineMat.color.setHex(state === "thinking" ? 0xa855f7 : 0x3b82f6);
+    ptsMat.color.setHex(state === "speaking" ? 0x67e8f9 : 0x38bdf8);
+
+    renderer.render(scene, camera);
+  }
+  requestAnimationFrame(animate);
+
+  window.JarvisOrb = {
+    setState: s => state = s,
+    setExternalAudio: lvl => { extAudio = Number(lvl) || 0; extTime = performance.now(); },
+    startListening: () => state = "listening",
+    startThinking: () => state = "thinking",
+    startSpeaking: () => state = "speaking",
+    stopSpeaking: () => state = "idle"
+  };
+})();
+</script>
+</body>
+</html>

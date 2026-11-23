@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JARVIS Dark Matte & Gold Cage Orb</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; }
+  #stage { position: relative; width: 100%; height: 100%; cursor: grab; }
+  canvas { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="c"></canvas></div>
+<script src="three.min.js"></script>
+<script>
+(function(){
+  const canvas = document.getElementById("c");
+  const stage = document.getElementById("stage");
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setClearColor(0x000000, 0);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 50);
+  camera.position.z = 5.2;
+
+  const root = new THREE.Group();
+  scene.add(root);
+
+  // Lighting for the matte armor shell
+  const keyLight = new THREE.DirectionalLight(0xfef08a, 1.8);
+  keyLight.position.set(3, 4, 5);
+  const rimLight = new THREE.DirectionalLight(0xd97706, 1.4);
+  rimLight.position.set(-4, -3, -2);
+  scene.add(keyLight, rimLight, new THREE.AmbientLight(0x18181b, 1.2));
+
+  // Inner bright yellow-gold energy core
+  const innerCore = new THREE.Mesh(
+    new THREE.IcosahedronGeometry(0.95, 3),
+    new THREE.MeshBasicMaterial({ color: 0xfacc15 })
+  );
+  const innerHalo = new THREE.Mesh(
+    new THREE.SphereGeometry(1.12, 32, 32),
+    new THREE.MeshBasicMaterial({
+      color: 0xf59e0b, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending
+    })
+  );
+  root.add(innerCore, innerHalo);
+
+  // Outer dark matte-black geodesic wireframe + semi-open plates
+  const outerGeo = new THREE.IcosahedronGeometry(1.48, 1);
+  const matteMesh = new THREE.Mesh(
+    outerGeo,
+    new THREE.MeshStandardMaterial({
+      color: 0x111216,
+      roughness: 0.85,
+      metalness: 0.25,
+      flatShading: true,
+      transparent: true,
+      opacity: 0.82
+    })
+  );
+
+  const goldEdges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(outerGeo),
+    new THREE.LineBasicMaterial({ color: 0xf59e0b, transparent: true, opacity: 0.9 })
+  );
+
+  const outerShell = new THREE.Group();
+  outerShell.add(matteMesh, goldEdges);
+  root.add(outerShell);
+
+  // Floating gold orbital ring
+  const orbitRing = new THREE.Mesh(
+    new THREE.TorusGeometry(1.85, 0.015, 12, 100),
+    new THREE.MeshBasicMaterial({ color: 0xfde047, transparent: true, opacity: 0.55 })
+  );
+  orbitRing.rotation.x = 1.25;
+  orbitRing.rotation.y = -0.35;
+  root.add(orbitRing);
+
+  let state = "idle", extAudio = 0, extTime = 0, mx = 0, my = 0;
+  window.addEventListener("pointermove", e => {
+    mx = (e.clientX / window.innerWidth - 0.5) * 0.6;
+    my = (e.clientY / window.innerHeight - 0.5) * 0.6;
+  });
+
+  function resize() {
+    const w = stage.clientWidth || 300, h = stage.clientHeight || 300;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  let last = performance.now();
+  function animate(now) {
+    requestAnimationFrame(animate);
+    const dt = Math.min((now - last) / 1000, 0.05); last = now;
+
+    const audio = (now - extTime < 220)
+      ? extAudio
+      : (state === "speaking" ? 0.35 + 0.35 * Math.abs(Math.sin(now * 0.008))
+        : state === "thinking" ? 0.28 : 0.05);
+
+    const speed = state === "thinking" ? 1.8 : 0.45;
+    outerShell.rotation.y += dt * speed;
+    outerShell.rotation.x += dt * speed * 0.5;
+    orbitRing.rotation.z -= dt * speed * 1.4;
+
+    // Expand outer matte cage slightly on voice/thinking so gold core shines through
+    const cageScale = 1 + audio * 0.14 + Math.sin(now * 0.0025) * 0.02;
+    outerShell.scale.setScalar(cageScale);
+    matteMesh.material.opacity = Math.max(0.45, 0.84 - audio * 0.35);
+
+    const corePulse = 1 + audio * 0.22;
+    innerCore.scale.setScalar(corePulse);
+    innerHalo.scale.setScalar(corePulse * 1.15);
+
+    root.rotation.y += (mx - root.rotation.y) * dt * 4;
+    root.rotation.x += (my - root.rotation.x) * dt * 4;
+
+    renderer.render(scene, camera);
+  }
+  requestAnimationFrame(animate);
+
+  window.JarvisOrb = {
+    setState: s => state = s,
+    setExternalAudio: lvl => { extAudio = Number(lvl) || 0; extTime = performance.now(); },
+    startListening: () => state = "listening",
+    startThinking: () => state = "thinking",
+    startSpeaking: () => state = "speaking",
+    stopSpeaking: () => state = "idle"
+  };
+})();
+</script>
+</body>
+</html>

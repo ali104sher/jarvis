@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JARVIS Liquid Plasma Orb</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; }
+  #stage { position: relative; width: 100%; height: 100%; cursor: grab; }
+  #stage:active { cursor: grabbing; }
+  canvas { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="c"></canvas></div>
+<script src="three.min.js"></script>
+<script>
+(function(){
+  const canvas = document.getElementById("c");
+  const stage = document.getElementById("stage");
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setClearColor(0x000000, 0);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 50);
+  camera.position.z = 5.2;
+
+  const U = {
+    uTime: { value: 0 },
+    uAmp: { value: 0.08 },
+    uSpeed: { value: 0.6 },
+    uSpike: { value: 0.22 },
+    uColorA: { value: new THREE.Color(0x0ea5e9) }, // Cyan-Blue
+    uColorB: { value: new THREE.Color(0x8b5cf6) }, // Electric Violet
+    uColorCore: { value: new THREE.Color(0x090d16) } // Deep Obsidian
+  };
+
+  const vertexShader = `
+    uniform float uTime;
+    uniform float uAmp;
+    uniform float uSpike;
+    varying vec3 vNormal;
+    varying vec3 vViewPosition;
+    varying float vNoise;
+
+    // 3D Simplex-like wave noise
+    float snoise(vec3 p) {
+      return sin(p.x * 2.1 + uTime) * cos(p.y * 2.3 - uTime * 0.8) * sin(p.z * 2.2 + uTime * 0.6)
+           + 0.5 * sin(p.x * 4.5 - uTime * 1.4) * cos(p.y * 4.2 + uTime * 1.1) * sin(p.z * 4.8);
+    }
+
+    void main() {
+      float n = snoise(position * 1.4);
+      float detail = snoise(position * 3.5 + uTime * 0.5) * 0.35;
+      float disp = (n + detail) * (uSpike + uAmp * 0.65);
+      vNoise = n;
+
+      vec3 newPos = position + normal * disp;
+      vec4 mvPosition = modelViewMatrix * vec4(newPos, 1.0);
+      vViewPosition = -mvPosition.xyz;
+      vNormal = normalize(normalMatrix * normal);
+      gl_Position = projectionMatrix * mvPosition;
+    }
+  `;
+
+  const fragmentShader = `
+    uniform vec3 uColorA;
+    uniform vec3 uColorB;
+    uniform vec3 uColorCore;
+    uniform float uAmp;
+    varying vec3 vNormal;
+    varying vec3 vViewPosition;
+    varying float vNoise;
+
+    void main() {
+      vec3 normal = normalize(vNormal);
+      vec3 viewDir = normalize(vViewPosition);
+      float fresnel = pow(1.0 - abs(dot(normal, viewDir)), 2.4);
+
+      vec3 energyCol = mix(uColorA, uColorB, smoothstep(-0.6, 0.8, vNoise));
+      vec3 col = mix(uColorCore, energyCol, fresnel * (1.25 + uAmp));
+      col += energyCol * pow(fresnel, 4.0) * (0.9 + uAmp * 1.5);
+
+      gl_FragColor = vec4(col, clamp(0.88 + fresnel * 0.12, 0.0, 1.0));
+    }
+  `;
+
+  const geo = new THREE.IcosahedronGeometry(1.35, 32);
+  const mat = new THREE.ShaderMaterial({
+    vertexShader, fragmentShader, uniforms: U, transparent: true
+  });
+  const sphere = new THREE.Mesh(geo, mat);
+  scene.add(sphere);
+
+  // Subtle outer energy halo ring
+  const haloGeo = new THREE.RingGeometry(1.75, 1.78, 128);
+  const haloMat = new THREE.MeshBasicMaterial({
+    color: 0x38bdf8, transparent: true, opacity: 0.35, side: THREE.DoubleSide, blending: THREE.AdditiveBlending
+  });
+  const halo = new THREE.Mesh(haloGeo, haloMat);
+  halo.rotation.x = 1.1;
+  scene.add(halo);
+
+  let state = "idle", extAudio = 0, extTime = 0, velX = 0, velY = 0, drag = false, px = 0, py = 0;
+  stage.addEventListener("pointerdown", e => { drag = true; px = e.clientX; py = e.clientY; });
+  window.addEventListener("pointermove", e => {
+    if (!drag) return;
+    velY += (e.clientX - px) * 0.008;
+    velX += (e.clientY - py) * 0.008;
+    px = e.clientX; py = e.clientY;
+  });
+  window.addEventListener("pointerup", () => drag = false);
+
+  function resize() {
+    const w = stage.clientWidth || 300, h = stage.clientHeight || 300;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  let last = performance.now();
+  function animate(now) {
+    requestAnimationFrame(animate);
+    const dt = Math.min((now - last) / 1000, 0.05); last = now;
+
+    const activeAudio = (now - extTime < 220)
+      ? extAudio
+      : (state === "speaking" ? 0.35 + 0.35 * Math.abs(Math.sin(now * 0.008))
+        : state === "listening" ? 0.2 + 0.15 * Math.sin(now * 0.005)
+        : state === "thinking" ? 0.28 : 0.05);
+
+    const targetSpeed = state === "thinking" ? 2.2 : state === "speaking" ? 1.4 : 0.65;
+    U.uSpeed.value += (targetSpeed - U.uSpeed.value) * dt * 4;
+    U.uTime.value += dt * U.uSpeed.value;
+    U.uAmp.value += (activeAudio - U.uAmp.value) * dt * 10;
+
+    sphere.rotation.y += dt * 0.25 + velY;
+    sphere.rotation.x += velX;
+    velX *= 0.92; velY *= 0.92;
+
+    halo.rotation.z -= dt * 0.4;
+    halo.scale.setScalar(1 + U.uAmp.value * 0.18);
+
+    renderer.render(scene, camera);
+  }
+  requestAnimationFrame(animate);
+
+  window.JarvisOrb = {
+    setState: s => state = s,
+    setExternalAudio: lvl => { extAudio = Number(lvl) || 0; extTime = performance.now(); },
+    startListening: () => state = "listening",
+    startThinking: () => state = "thinking",
+    startSpeaking: () => state = "speaking",
+    stopSpeaking: () => state = "idle"
+  };
+})();
+</script>
+</body>
+</html>
