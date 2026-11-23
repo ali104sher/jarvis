@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>JARVIS — UI Design Switcher</title>
+<style>
+  :root {
+    --bg: #04080e;
+    --panel: rgba(8, 16, 26, 0.78);
+    --border: rgba(34, 211, 238, 0.25);
+    --cyan: #22d3ee;
+    --emerald: #10b981;
+    --gold: #f59e0b;
+    --text: #e2e8f0;
+    --muted: #64748b;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", Inter, -apple-system, sans-serif;
+  }
+
+  /* Subtle tactical grid backdrop matching JARVIS Mark LVII */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(circle at 50% 45%, rgba(16, 185, 129, 0.08), rgba(6, 182, 212, 0.04) 40%, transparent 72%),
+      linear-gradient(rgba(34, 211, 238, 0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(34, 211, 238, 0.04) 1px, transparent 1px);
+    background-size: 100% 100%, 44px 44px, 44px 44px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Full-screen iframe stage */
+  #viewer-wrap {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  iframe#design-frame {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: transparent;
+    transition: opacity 0.25s ease;
+  }
+
+  iframe#design-frame.loading {
+    opacity: 0.15;
+  }
+
+  /* Top HUD Bar */
+  .hud-top {
+    position: fixed;
+    top: 16px;
+    left: 20px;
+    right: 20px;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    pointer-events: none;
+  }
+
+  .hud-card {
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    border-radius: 12px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  }
+
+  .brand {
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.22em;
+    color: var(--cyan);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .brand-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--emerald);
+    box-shadow: 0 0 10px var(--emerald);
+  }
+
+  .file-badge {
+    font-family: Consolas, monospace;
+    font-size: 12px;
+    color: var(--gold);
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    padding: 3px 8px;
+    border-radius: 6px;
+  }
+
+  /* State Tester Pills */
+  .state-group {
+    display: flex;
+    gap: 4px;
+  }
+
+  .btn {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    padding: 6px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    text-transform: uppercase;
+  }
+
+  .btn:hover {
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .btn.active {
+    color: #03131a;
+    background: var(--cyan);
+    box-shadow: 0 0 14px rgba(34, 211, 238, 0.45);
+  }
+
+  .btn.gold.active {
+    background: var(--gold);
+    box-shadow: 0 0 14px rgba(245, 158, 11, 0.45);
+  }
+
+  /* Bottom Design Selector Dock */
+  .hud-bottom {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    max-width: 94vw;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 16px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 10px 35px rgba(0, 0, 0, 0.6);
+  }
+
+  .nav-arrow {
+    width: 32px;
+    height: 32px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: rgba(34, 211, 238, 0.06);
+    color: var(--cyan);
+    font-size: 15px;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    transition: 0.15s;
+    flex: none;
+  }
+
+  .nav-arrow:hover {
+    background: rgba(34, 211, 238, 0.2);
+  }
+
+  #design-list {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  #design-list::-webkit-scrollbar { display: none; }
+
+  .design-pill {
+    padding: 7px 13px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.18s ease;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .design-pill span.num {
+    color: var(--cyan);
+    font-family: Consolas, monospace;
+    font-size: 11px;
+  }
+
+  .design-pill:hover {
+    border-color: var(--cyan);
+    background: rgba(34, 211, 238, 0.08);
+  }
+
+  .design-pill.active {
+    background: linear-gradient(135deg, rgba(34, 211, 238, 0.25), rgba(16, 185, 129, 0.22));
+    border-color: var(--cyan);
+    box-shadow: 0 0 16px rgba(34, 211, 238, 0.25);
+  }
+
+  .custom-input {
+    width: 92px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: rgba(0, 0, 0, 0.45);
+    color: var(--text);
+    font-family: Consolas, monospace;
+    font-size: 11.5px;
+    outline: none;
+  }
+  .custom-input:focus { border-color: var(--gold); }
+
+  /* Error banner if a file isn't found */
+  #missing-msg {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 5;
+    padding: 18px 24px;
+    border-radius: 14px;
+    background: var(--panel);
+    border: 1px solid rgba(245, 158, 11, 0.45);
+    text-align: center;
+    display: none;
+  }
+  #missing-msg code { color: var(--gold); }
+</style>
+</head>
+<body>
+
+  <!-- Top HUD: Title + Live State Tester -->
+  <div class="hud-top">
+    <div class="hud-card">
+      <div class="brand"><span class="brand-dot"></span>JARVIS UI STUDIO</div>
+      <span class="file-badge" id="current-file">designs/1.html</span>
+    </div>
+
+    <div class="hud-card state-group" title="Test Orb/Avatar Voice & AI States">
+      <button class="btn active" data-state="idle">Idle</button>
+      <button class="btn" data-state="listening">Listening</button>
+      <button class="btn gold" data-state="thinking">Thinking</button>
+      <button class="btn" data-state="speaking">Speaking</button>
+    </div>
+  </div>
+
+  <!-- Center Stage Iframe -->
+  <div id="viewer-wrap">
+    <iframe id="design-frame" allowtransparency="true" allow="microphone"></iframe>
+  </div>
+
+  <div id="missing-msg">
+    <p style="margin-bottom:6px;font-weight:600;color:#fbbf24;">Design File Not Found</p>
+    <p style="font-size:13px;color:#94a3b8;">Make sure <code id="missing-path">designs/1.html</code> exists inside your <code>designs/</code> folder.</p>
+  </div>
+
+  <!-- Bottom Selector Dock -->
+  <div class="hud-bottom">
+    <button class="nav-arrow" id="prev-btn" title="Previous Design (Left Arrow)">&#9664;</button>
+    <div id="design-list"></div>
+    <button class="nav-arrow" id="next-btn" title="Next Design (Right Arrow)">&#9654;</button>
+    <input class="custom-input" id="custom-file" type="text" placeholder="e.g. 6.html" title="Type any filename inside designs/ and press Enter" />
+  </div>
+
+<script>
+(function() {
+  // List your files inside the designs/ folder here:
+  const DESIGNS = [
+    { file: "1.html", label: "Design 1" },
+    { file: "2.html", label: "Design 2" },
+    { file: "3.html", label: "Design 3" },
+    { file: "4.html", label: "Design 4" },
+    { file: "5.html", label: "Design 4" },
+    { file: "6.html", label: "Design 4" },
+    { file: "7.html", label: "Design 5" }
+  ];
+
+  const frame = document.getElementById("design-frame");
+  const listEl = document.getElementById("design-list");
+  const fileBadge = document.getElementById("current-file");
+  const missingMsg = document.getElementById("missing-msg");
+  const missingPath = document.getElementById("missing-path");
+  const customInput = document.getElementById("custom-file");
+
+  let currentIndex = 0;
+  let currentState = "idle";
+
+  // Build selector buttons
+  function renderButtons() {
+    listEl.innerHTML = "";
+    DESIGNS.forEach((item, idx) => {
+      const btn = document.createElement("button");
+      btn.className = "design-pill" + (idx === currentIndex ? " active" : "");
+      btn.innerHTML = `<span class="num">0${idx + 1}</span> ${item.label}`;
+      btn.addEventListener("click", () => loadDesign(idx));
+      listEl.appendChild(btn);
+    });
+  }
+
+  // Forward AI state (idle/listening/thinking/speaking) into whichever design is loaded
+  function syncStateToIframe() {
+    try {
+      const win = frame.contentWindow;
+      if (!win) return;
+      if (win.JarvisOrb && typeof win.JarvisOrb.setState === "function") {
+        win.JarvisOrb.setState(currentState);
+      } else if (typeof win.setOrbState === "function") {
+        win.setOrbState(currentState.toUpperCase());
+      }
+    } catch (e) {
+      // Ignore cross-origin restrictions if opened directly via file:// in strict browsers
+    }
+  }
+
+  function loadDesignByFile(filename) {
+    const clean = filename.trim().replace(/^designs\//i, "");
+    if (!clean) return;
+    const path = `designs/${clean}`;
+    fileBadge.textContent = path;
+    missingMsg.style.display = "none";
+    frame.classList.add("loading");
+    frame.src = path;
+  }
+
+  function loadDesign(index) {
+    currentIndex = (index + DESIGNS.length) % DESIGNS.length;
+    renderButtons();
+    loadDesignByFile(DESIGNS[currentIndex].file);
+  }
+
+  frame.addEventListener("load", () => {
+    frame.classList.remove("loading");
+    syncStateToIframe();
+    // Check if browser loaded a 404 page
+    try {
+      const doc = frame.contentDocument;
+      if (doc && doc.body && doc.body.innerText.includes("Cannot GET")) {
+        missingPath.textContent = fileBadge.textContent;
+        missingMsg.style.display = "block";
+      }
+    } catch (e) {}
+  });
+
+  // State buttons
+  document.querySelectorAll("[data-state]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll("[data-state]").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      currentState = btn.dataset.state;
+      syncStateToIframe();
+    });
+  });
+
+  // Prev / Next arrows & Keyboard Left/Right navigation
+  document.getElementById("prev-btn").addEventListener("click", () => loadDesign(currentIndex - 1));
+  document.getElementById("next-btn").addEventListener("click", () => loadDesign(currentIndex + 1));
+
+  window.addEventListener("keydown", e => {
+    if (document.activeElement === customInput) return;
+    if (e.key === "ArrowLeft") loadDesign(currentIndex - 1);
+    if (e.key === "ArrowRight") loadDesign(currentIndex + 1);
+  });
+
+  // Load any custom filename typed into the box (e.g. 6.html)
+  customInput.addEventListener("keydown", e => {
+    if (e.key === "Enter") {
+      const val = customInput.value.trim();
+      if (!val) return;
+      const file = val.endsWith(".html") ? val : `${val}.html`;
+      if (!DESIGNS.some(d => d.file === file)) {
+        DESIGNS.push({ file, label: file.replace(".html", "") });
+      }
+      currentIndex = DESIGNS.findIndex(d => d.file === file);
+      renderButtons();
+      loadDesignByFile(file);
+      customInput.value = "";
+    }
+  });
+
+  // Start with designs/1.html
+  renderButtons();
+  loadDesign(0);
+})();
+</script>
+</body>
+</html>
